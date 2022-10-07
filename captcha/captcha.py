@@ -18,10 +18,7 @@ def _line_break(line):
     _WIDTH = 0
     list = [""]
     for c in line:
-        if len(c.encode("utf8")) == 3:
-            _CHAR_SIZE = CHAR_SIZE  # 中文全宽
-        else:
-            _CHAR_SIZE = CHAR_SIZE // 2
+        _CHAR_SIZE = CHAR_SIZE if len(c.encode("utf8")) == 3 else CHAR_SIZE // 2
         if(c == "\n"):
             _WIDTH = 0
             list.append("")
@@ -57,7 +54,7 @@ def _getImg(content):
     image.save(output_buffer, format=BASE64_FMT)
     byte_data = output_buffer.getvalue()
     base64_str = base64.b64encode(byte_data).decode('utf-8')
-    return f'data:image/{BASE64_FMT};base64,' + base64_str
+    return f'data:image/{BASE64_FMT};base64,{base64_str}'
     # image.save(name, "PNG")
     # image.close()
 
@@ -71,9 +68,6 @@ def getCaptcha():
     }
 
 def checkCaptcha(id, answer):
-    if data[id]['year'] == str(answer):
-        return True
-    else:
-        return False
+    return data[id]['year'] == str(answer)
 
 # print(getCaptcha())
