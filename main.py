@@ -19,7 +19,7 @@ from gitscratch_init import app, db
 geoip2reader = geoip2.database.Reader(
     'geolite2/GeoLite2-City.mmdb')
 
-ALLOWED_EXTENSIONS = set(['txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'])
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 ASSETS_FOLDER = 'assets'
 COMMITS_FOLDER = 'commits'
 
@@ -52,10 +52,7 @@ def success(data=None):
 @app.route("/")
 def index():
     """For test only"""
-    if g.user:
-        return g.user.name
-    else:
-        return success()
+    return g.user.name if g.user else success()
 
 
 @app.before_request
@@ -80,14 +77,13 @@ def load_logged_in_user():
         _session = None
     if _session is not None:  # if headers has session
         user = User.query.filter_by(_session=_session).first()
-        if user is not None:  # if session is valid
-            if time.time() - user._session_time <= 60 * 60:  # 1 hour
-                user._session_time = int(time.time())
-                db.session.commit()
-                g.user = user
-            else:  # session expired
-                g.user = None
-        else:  # if session is invalid
+        if user is None:  # if session is invalid
+            g.user = None
+        elif time.time() - user._session_time <= 60 * 60:  # 1 hour
+            user._session_time = int(time.time())
+            db.session.commit()
+            g.user = user
+        else:  # session expired
             g.user = None
     else:  # if headers has no session
         g.user = None
@@ -96,7 +92,7 @@ def load_logged_in_user():
 @app.errorhandler(HTTPException)
 def handle_exception(e):
     """Return JSON for HTTP errors. Only available for production environment."""
-    return error(str(e.code) + " " + e.name)
+    return error(f"{str(e.code)} {e.name}")
 
 
 @app.route("/auth/captcha", methods=["GET"])
@@ -162,10 +158,7 @@ def auth_login():
 @app.route("/auth/session", methods=["GET"])
 def auth_session():
     """Get user session"""
-    if g.user:
-        return success({'data': g.user.to_json()})
-    else:
-        return unauthorized()
+    return success({'data': g.user.to_json()}) if g.user else unauthorized()
 
 
 @app.route("/auth/logout", methods=["POST"])
@@ -182,16 +175,14 @@ def auth_logout():
 def users_info(id):
     """Get user info"""
     user = db.session.query(User).filter_by(id=id).first()
-    if not user:
-        return error("Invalid id")
-    return success(user.to_json())
+    return success(user.to_json()) if user else error("Invalid id")
 
 
 @app.route("/users/<id>/info", methods=["POST"])
 def users_info_update(id):
     """Update user info"""
     user = db.session.query(User).filter_by(id=id).first()
-    if not user or g.user == None:
+    if not user or g.user is None:
         return error("Invalid id")
     elif(user.id == g.user.id):
         if 'name' in request.json:
@@ -230,7 +221,7 @@ def users_projects(id):
 @app.route("/users/<id>/projects/new", methods=["POST"])
 def users_projects_new(id):
     """Create new user project"""
-    if(g.user == None):
+    if g.user is None:
         return unauthorized()
     with open("default.json", "rb") as default_project:
         file_md5 = hashlib.md5(default_project.read()).hexdigest()
@@ -259,9 +250,11 @@ def users_projects_new(id):
 def projects_info(id):
     """Get project info"""
     project = db.session.query(Project).filter_by(id=id).first()
-    if not project:
-        return error("Invalid id")
-    return success(project.to_json(user=g.user))
+    return (
+        success(project.to_json(user=g.user))
+        if project
+        else error("Invalid id")
+    )
 
 
 @app.route("/projects/<id>/operation", methods=["POST"])
@@ -273,19 +266,17 @@ def projects_operation(id):
     if not g.user:
         return unauthorized()
     operation_type = request.json['type']
-    if(operation_type in ['project.view', 'project.star', 'project.like']):
+    if (operation_type in ['project.view', 'project.star', 'project.like']):
         operation = User_Operation.query.filter_by(
             _target_type="project", _target_id=id, type=operation_type, _user=g.user.id)  # project.view, project.star, project.like
-        if(operation.count() > 0):
+        if (operation.count() > 0):
             operation.delete()
-            db.session.commit()
-            return success()
         else:
             operation = User_Operation(
                 _target_type="project", _target_id=id, type=operation_type, _user=g.user.id)
             db.session.add(operation)
-            db.session.commit()
-            return success()
+        db.session.commit()
+        return success()
     return error("Invalid operation type")
 
 
@@ -293,7 +284,7 @@ def projects_operation(id):
 def projects_info_update(id):
     """Update project info"""
     project = db.session.query(Project).filter_by(id=id).first()
-    if not project or g.user == None:
+    if not project or g.user is None:
         return error("Invalid id")
     elif(project.author.id == g.user.id):
         if 'title' in request.json:
@@ -318,13 +309,15 @@ def projects_json(id):
     project = db.session.query(Project).filter_by(id=id).first()
     if not project:
         return error("Invalid id")
-    if(commit_hash == None):
+    if commit_hash is None:
         commit_hash = project.head.hash
     commit = db.session.query(Commit).filter_by(
         _project_id=id, hash=commit_hash)
-    if not commit:
-        return error("Invalid commit")
-    return send_from_directory(COMMITS_FOLDER, commit_hash)
+    return (
+        send_from_directory(COMMITS_FOLDER, commit_hash)
+        if commit
+        else error("Invalid commit")
+    )
 
 
 @app.route("/projects/<id>/json", methods=["POST"])
@@ -348,13 +341,6 @@ def projects_json_commit(id):
     )
     db.session.add(new_commit)
     return success({'filename': filename})
-    if(commit_hash == None):
-        commit_hash = project.head.hash
-    commit = db.session.query(Commit).filter_by(
-        _project_id=id, hash=commit_hash)
-    if not commit:
-        return error("Invalid commit")
-    return send_from_directory(COMMITS_FOLDER, commit_hash)
 
 
 def getComments(target_type, target_id, args):
@@ -371,7 +357,7 @@ def getComments(target_type, target_id, args):
 
 
 def newComment(target_type, target_id, request_json):
-    if(g.user == None):
+    if g.user is None:
         return unauthorized()
     db.session.add(Comment(
         comment=request_json['comment'],
@@ -394,20 +380,22 @@ def updateComment(target_type, target_id, request_json):
         user = db.session.query(User).filter_by(id=target_id).first()
     elif(target_type == 'project'):
         user = db.session.query(Project).filter_by(id=target_id).first().author
-    if not user or g.user == None:
+    if not user or g.user is None:
         return error("Invalid id")
-    elif(user.id == g.user.id):
+    elif (user.id == g.user.id):
         comment_id = request_json['id']
-        comment = db.session.query(Comment).filter_by(id=comment_id).first()
-        if not comment:
+        if not (
+            comment := db.session.query(Comment)
+            .filter_by(id=comment_id)
+            .first()
+        ):
             return error("Invalid comment id")
-        else:
-            if('comment' in request_json):
-                comment.comment = request_json['comment']
-            if('status' in request_json):
-                comment.status = request_json['status']
-            db.session.commit()
-            return success()
+        if('comment' in request_json):
+            comment.comment = request_json['comment']
+        if('status' in request_json):
+            comment.status = request_json['status']
+        db.session.commit()
+        return success()
     return unauthorized()
 
 
@@ -452,7 +440,7 @@ def assets_upload():
     f = request.files['file']
     ext = f.filename.rsplit('.', 1)[1]
     md5 = hashlib.md5(f.read()).hexdigest()
-    filename = md5 + '.' + ext
+    filename = f'{md5}.{ext}'
     filepath = os.path.join(ASSETS_FOLDER, filename)
     if not os.path.isfile(filepath):
         f.seek(0)
@@ -471,7 +459,7 @@ def apply_caching(response):
     response.headers["Access-Control-Allow-Method"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Server"] = "Python with Super Cow Powers"
-    if (g.user == None):
+    if g.user is None:
         response.headers['X-GitScratch-User'] = 'None'
     return response
 
